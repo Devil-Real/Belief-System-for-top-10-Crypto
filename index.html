@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Crypto Dashboard</title>
+
+<style>
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #020617;
+  color: white;
+  margin: 0;
+  padding: 10px;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 10px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+th {
+  background: #111827;
+}
+
+tr:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+/* Sentiment Bar */
+.position-container {
+  width: 120px;
+  height: 10px;
+  display: flex;
+  background: #111827;
+  margin: auto;
+}
+
+.green-bar {
+  background: #22c55e;
+  transition: width 0.2s;
+}
+
+.red-bar {
+  background: #ef4444;
+  transition: width 0.2s;
+}
+
+.positive { color: #22c55e; }
+.negative { color: #ef4444; }
+
+</style>
+</head>
+
+<body>
+
+<div class="table-container">
+<table>
+<thead>
+<tr>
+  <th>Coin</th>
+  <th>Price ($)</th>
+  <th>24h High</th>
+  <th>24h Low</th>
+  <th>Market Pressure</th>
+  <th>Sentiment</th>
+  <th>Belief %</th>
+</tr>
+</thead>
+
+<tbody id="cryptoTable"></tbody>
+</table>
+</div>
+
+<script>
+
+const coins = [
+  "btcusdt","ethusdt","bnbusdt","solusdt","xrpusdt",
+  "dogeusdt","adausdt","linkusdt","polusdt","ltcusdt"
+];
+
+const table = document.getElementById("cryptoTable");
+let coinRows = {};
+let beliefState = {};
+
+coins.forEach(symbol => {
+  const row = document.createElement("tr");
+
+  row.innerHTML = `
+    <td>${symbol.replace("usdt","").toUpperCase()}</td>
+    <td class="price">-</td>
+    <td class="high">-</td>
+    <td class="low">-</td>
+    <td>
+      <div class="position-container">
+        <div class="green-bar"></div>
+        <div class="red-bar"></div>
+      </div>
+    </td>
+    <td class="sentiment">-</td>
+    <td class="percent">50%</td>
+  `;
+
+  table.appendChild(row);
+  coinRows[symbol] = row;
+
+  beliefState[symbol] = {
+    value: 50,
+    velocity: 0
+  };
+});
+
+const streams = coins.map(c => c + "@ticker").join("/");
+const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  const d = msg.data;
+
+  const symbol = d.s.toLowerCase();
+  const row = coinRows[symbol];
+  if (!row) return;
+
+  const price = parseFloat(d.c);
+  const high = parseFloat(d.h);
+  const low = parseFloat(d.l);
+  const change = parseFloat(d.P);
+  const volume = parseFloat(d.v);
+
+  // 📊 Position in range
+  const range = high - low;
+  const position = range > 0 ? ((price - low) / range) * 100 : 50;
+
+  // 🧠 Smart belief calculation
+  let momentum = change * 3;
+  let positionBias = (position - 50) * 1.2;
+  let volumeBoost = Math.log10(volume + 1);
+
+  let target = 50 + momentum + positionBias + volumeBoost;
+
+  target = Math.max(5, Math.min(95, target));
+
+  let state = beliefState[symbol];
+
+  // smooth movement (momentum memory)
+  state.velocity += (target - state.value) * 0.05;
+  state.velocity *= 0.9;
+  state.value += state.velocity;
+
+  // UI update
+  let green = state.value;
+  let red = 100 - state.value;
+
+  let sentiment = "Neutral";
+  if (green > 55) sentiment = "Bullish";
+  else if (red > 55) sentiment = "Bearish";
+
+  row.querySelector(".price").innerText = price.toFixed(2);
+  row.querySelector(".high").innerText = high.toFixed(2);
+  row.querySelector(".low").innerText = low.toFixed(2);
+
+  row.querySelector(".green-bar").style.width = green + "%";
+  row.querySelector(".red-bar").style.width = red + "%";
+
+  row.querySelector(".sentiment").innerText = sentiment;
+  row.querySelector(".sentiment").className =
+    "sentiment " +
+    (sentiment === "Bullish"
+      ? "positive"
+      : sentiment === "Bearish"
+      ? "negative"
+      : "");
+
+  row.querySelector(".percent").innerText =
+    state.value.toFixed(1) + "%";
+};
+
+// ⚡ continuous live updates every second
+setInterval(() => {
+  for (let symbol in beliefState) {
+    let state = beliefState[symbol];
+    let row = coinRows[symbol];
+    if (!row) continue;
+
+    // small natural fluctuation
+    state.value += (Math.random() - 0.5) * 1.5;
+
+    state.value = Math.max(0, Math.min(100, state.value));
+
+    row.querySelector(".percent").innerText =
+      state.value.toFixed(1) + "%";
+
+    row.querySelector(".green-bar").style.width =
+      state.value + "%";
+    row.querySelector(".red-bar").style.width =
+      (100 - state.value) + "%";
+  }
+}, 1000);
+
+</script>
+
+</body>
+</html>
